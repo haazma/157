@@ -1,89 +1,276 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Large JSON Viewer</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Large JSON Viewer — Archive.org friendly</title>
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  input, button { padding: 8px; font-size: 16px; }
-  table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-  th, td { border: 1px solid #ccc; padding: 6px; font-size: 14px; }
-  th { background: #eee; }
-  #status { margin-top: 10px; font-weight: bold; color: green; }
+  :root{--bg:#f6f8fb;--card:#fff;--muted:#6b7280}
+  body{font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);margin:0;padding:20px}
+  .wrap{max-width:1200px;margin:0 auto;background:var(--card);padding:18px;border-radius:10px;box-shadow:0 8px 30px rgba(20,30,50,.06)}
+  h1{margin:0 0 6px;font-size:20px}
+  p.small{margin:0;color:var(--muted)}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  textarea,input[type=text]{width:100%;padding:10px;border:1px solid #e6e9ef;border-radius:8px;font-size:14px}
+  button{padding:8px 10px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer}
+  .files{margin-top:12px}
+  .file{display:flex;gap:8px;align-items:center;padding:8px;border:1px dashed #eef2ff;border-radius:8px;margin-bottom:8px}
+  .file .url{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .status{margin-left:auto;color:var(--muted);font-size:13px}
+  .viewer{margin-top:18px}
+  .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .table-head{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;font-weight:600;padding:8px;background:#fafbfd;border-radius:6px}
+  .row{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;padding:8px;border-bottom:1px solid #f2f4f7}
+  .list{height:520px;overflow:auto;border:1px solid #f0f2f5;border-radius:8px}
+  .muted{color:var(--muted)}
+  .loader{display:inline-block;width:16px;height:16px;border:3px solid #eee;border-top-color:#3b82f6;border-radius:50%;animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .right{margin-left:auto}
+  .downloadLink{font-size:13px;color:#0b63d6;text-decoration:underline;cursor:pointer}
+  .hidden{display:none}
+  @media (max-width:900px){.table-head,.row{grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;font-size:12px}}
 </style>
 </head>
 <body>
-<h2>Massive JSON Viewer (Archive.org Ready)</h2>
-<p>Paste the direct JSON URL from Archive.org (or any host):</p>
-<input id="jsonUrl" type="text" placeholder="https://archive.org/.../information.json" size="80" />
-<button onclick="loadJSON()">Load JSON</button>
-<div id="status"></div>
+<div class="wrap">
+  <h1>Large JSON Viewer</h1>
+  <p class="small">Paste one or more direct JSON URLs (Archive.org or GitHub Releases). The page will fetch, merge (optional), and display records. Each source is kept with a direct download link.</p>
 
-<h3>Data Table</h3>
-<table id="dataTable"></table>
+  <div style="margin-top:12px">
+    <label class="small muted">Add one or more JSON URLs (one per line):</label>
+    <textarea id="urlBox" rows="3" placeholder="https://archive.org/download/information_20251119/information.json
+https://.../part2.json"></textarea>
+    <div class="controls">
+      <button id="addFiles">Add URLs</button>
+      <button id="loadAll">Load & Merge All</button>
+      <button id="clearList">Clear</button>
+      <div class="muted right" id="globalStatus">No files added</div>
+    </div>
+  </div>
+
+  <div class="files" id="files"></div>
+
+  <div class="viewer hidden" id="viewer">
+    <div class="toolbar">
+      <input id="search" type="text" placeholder="Search across fields (fast)" style="min-width:220px" />
+      <label>Rows per page: <select id="pageSize"><option>50</option><option selected>100</option><option>250</option><option>500</option></select></label>
+      <button id="apply">Apply</button>
+      <button id="exportCsv">Export current view (CSV)</button>
+      <div class="right muted">Records: <span id="totalCount">0</span></div>
+    </div>
+
+    <div class="table-head" id="tableHead">
+      <div>ID</div><div>Name</div><div>Username</div><div>Mobile</div><div>District</div><div>State</div>
+    </div>
+
+    <div class="list" id="list"></div>
+
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+      <button id="prevPage">◀ Prev</button>
+      <button id="nextPage">Next ▶</button>
+      <div class="muted">Page <input id="pageInput" value="1" style="width:64px;padding:6px;border-radius:6px;border:1px solid #ddd"/> of <span id="pageCount">0</span></div>
+      <div class="muted right">Showing <span id="showing">0</span></div>
+    </div>
+  </div>
+
+</div>
 
 <script>
-async function loadJSON() {
-  const url = document.getElementById("jsonUrl").value.trim();
-  if (!url) return alert("Enter a JSON URL first.");
+// Simple large-json viewer that fetches one or more remote JSON files (expected array-of-objects or {data:[...]} per file)
+// Merges arrays when "Load & Merge All" is used. Uses windowed rendering for large lists (virtualized by page).
 
-  document.getElementById("status").innerText = "Downloading JSON...";
+const filesEl = document.getElementById('files');
+const urlBox = document.getElementById('urlBox');
+const globalStatus = document.getElementById('globalStatus');
+const viewer = document.getElementById('viewer');
+const listEl = document.getElementById('list');
+const totalCountEl = document.getElementById('totalCount');
 
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("HTTP Error " + response.status);
+let sources = []; // {url, status, size, dataLoaded:boolean, records: []}
+let merged = []; // flattened records for display
+let flat = []; // flattened strings
+let page = 1;
+let pageSize = 100;
+let filteredIdx = [];
 
-    const text = await response.text();
+function setGlobalStatus(s){globalStatus.textContent = s}
 
-    document.getElementById("status").innerText = "Parsing JSON... (500MB may take time)";
-
-    let jsonData;
-    try {
-      jsonData = JSON.parse(text);
-    } catch (e) {
-      alert("JSON is too large or malformed. Consider splitting into 25MB parts.");
-      return;
+function addUrlsFromBox(){
+  const lines = urlBox.value.split('
+').map(s=>s.trim()).filter(Boolean);
+  for(const u of lines){
+    if(!sources.find(s=>s.url===u)){
+      sources.push({url:u,status:'idle',size:0,dataLoaded:false,records:[]});
     }
-
-    document.getElementById("status").innerText = "Rendering table...";
-    renderTable(jsonData);
-  } catch (err) {
-    alert("Error loading JSON: " + err.message);
   }
+  renderFileList();
 }
 
-function renderTable(json) {
-  const table = document.getElementById("dataTable");
-  table.innerHTML = "";
+document.getElementById('addFiles').addEventListener('click', ()=>{addUrlsFromBox();});
+document.getElementById('clearList').addEventListener('click', ()=>{sources=[];merged=[];flat=[];renderFileList();hideViewer();setGlobalStatus('No files added');});
 
-  if (!Array.isArray(json)) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>JSON root is not an array. Expected split parts like part_1.json</td>`;
-    table.appendChild(tr);
-    return;
+document.getElementById('loadAll').addEventListener('click', async ()=>{
+  if(sources.length===0){alert('Add URLs first');return}
+  setGlobalStatus('Loading files...');
+  for(let i=0;i<sources.length;i++){
+    const s = sources[i];
+    if(!s.dataLoaded){
+      s.status='loading'; renderFileList();
+      try{
+        // fetch as text (safer for huge files) then parse
+        const resp = await fetch(s.url);
+        if(!resp.ok) throw new Error('HTTP '+resp.status);
+        const text = await resp.text();
+        // try parse
+        let j;
+        try{ j = JSON.parse(text); }
+        catch(e){
+          // try to recover if file is lines of objects — wrap in [ ... ]
+          try{ j = JSON.parse('['+text.split('
+').filter(Boolean).join(',')+']'); }
+          catch(e2){ throw new Error('Failed to parse JSON — consider splitting into smaller parts (25MB)'); }
+        }
+        let records = [];
+        if(Array.isArray(j)) records = j;
+        else if(j && Array.isArray(j.data)) records = j.data;
+        else records = [j];
+        s.records = records;
+        s.dataLoaded = true;
+        s.size = new Blob([text]).size;
+        s.status = 'loaded';
+      }catch(err){ s.status = 'error: '+err.message; }
+      renderFileList();
+    }
   }
 
-  const header = document.createElement("tr");
-  header.innerHTML = "<th>ID</th><th>Name</th><th>District</th><th>State</th><th>Username</th>";
-  table.appendChild(header);
+  // merge
+  merged = [];
+  for(const s of sources){ if(s.dataLoaded) merged = merged.concat(s.records); }
 
-  json.forEach(entry => {
-    if (!entry.data) return;
-    const d = entry.data;
+  setGlobalStatus('All files loaded — total records: ' + merged.length);
+  prepareFlat();
+  showViewer();
+});
 
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${d.id || ''}</td>
-      <td>${d.name || ''}</td>
-      <td>${d.district ? d.district.name : ''}</td>
-      <td>${d.state ? d.state.name : ''}</td>
-      <td>${d.username || ''}</td>
-    `;
-    table.appendChild(row);
+function renderFileList(){
+  filesEl.innerHTML = '';
+  sources.forEach((s,idx)=>{
+    const div = document.createElement('div'); div.className='file';
+    const url = document.createElement('div'); url.className='url'; url.textContent = s.url;
+    const download = document.createElement('a'); download.className='downloadLink'; download.textContent='Download'; download.href = s.url; download.target='_blank';
+    const st = document.createElement('div'); st.className='status'; st.textContent = s.status;
+    const loadBtn = document.createElement('button'); loadBtn.textContent = 'Load'; loadBtn.onclick = async ()=>{ await loadSingle(idx); };
+    const removeBtn = document.createElement('button'); removeBtn.textContent='Remove'; removeBtn.onclick=()=>{ sources.splice(idx,1); renderFileList(); }
+    div.appendChild(url); div.appendChild(download); div.appendChild(loadBtn); div.appendChild(removeBtn); div.appendChild(st);
+    filesEl.appendChild(div);
   });
-
-  document.getElementById("status").innerText = "Loaded successfully";
 }
+
+async function loadSingle(i){
+  const s = sources[i];
+  if(s.dataLoaded){ alert('Already loaded'); return }
+  s.status='loading'; renderFileList();
+  try{
+    const resp = await fetch(s.url);
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const text = await resp.text();
+    let j;
+    try{ j = JSON.parse(text); }
+    catch(e){ j = JSON.parse('['+text.split('
+').filter(Boolean).join(',')+']'); }
+    let records = [];
+    if(Array.isArray(j)) records = j;
+    else if(j && Array.isArray(j.data)) records = j.data;
+    else records = [j];
+    s.records = records; s.dataLoaded = true; s.size = new Blob([text]).size; s.status='loaded';
+    renderFileList();
+    setGlobalStatus('Loaded ' + s.records.length + ' records from file');
+  }catch(err){ s.status = 'error: '+err.message; renderFileList(); alert('Error: '+err.message); }
+}
+
+function prepareFlat(){
+  // flatten records for display and searching
+  flat = merged.map(r => {
+    const d = r.data || r;
+    const id = d.id || '';
+    const name = d.name || '';
+    const username = d.username || d.user && d.user.username || '';
+    const mobile = d.student_mobile_number || d.parent_phone_number || '';
+    const district = d.district && d.district.name || '';
+    const state = d.state && d.state.name || '';
+    return {id,name,username,mobile,district,state,raw:d};
+  });
+  filteredIdx = flat.map((_,i)=>i);
+  page = 1; pageSize = parseInt(document.getElementById('pageSize').value,10);
+  updateCounts();
+}
+
+function showViewer(){ viewer.classList.remove('hidden'); renderPage(); }
+function hideViewer(){ viewer.classList.add('hidden'); }
+
+function updateCounts(){ totalCountEl.textContent = flat.length; const pc = Math.max(1, Math.ceil(filteredIdx.length / pageSize)); document.getElementById('pageCount').textContent = pc; document.getElementById('pageInput').value = page; }
+
+function renderPage(){
+  pageSize = parseInt(document.getElementById('pageSize').value,10);
+  const pc = Math.max(1, Math.ceil(filteredIdx.length / pageSize));
+  page = Math.min(Math.max(1, page), pc);
+  document.getElementById('pageCount').textContent = pc;
+  document.getElementById('pageInput').value = page;
+
+  const start = (page-1)*pageSize; const end = Math.min(filteredIdx.length, start+pageSize);
+  listEl.innerHTML = '';
+  for(let i=start;i<end;i++){
+    const obj = flat[filteredIdx[i]];
+    const row = document.createElement('div'); row.className='row';
+    row.innerHTML = `<div>${obj.id}</div><div>${escapeHtml(obj.name)}</div><div>${escapeHtml(obj.username)}</div><div>${escapeHtml(obj.mobile)}</div><div>${escapeHtml(obj.district)}</div><div>${escapeHtml(obj.state)}</div>`;
+    listEl.appendChild(row);
+  }
+  document.getElementById('showing').textContent = (filteredIdx.length===0)?0:(start+1) + ' - ' + end;
+}
+
+function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// search and apply
+document.getElementById('apply').addEventListener('click', ()=>{ applyFilter(); renderPage(); });
+function applyFilter(){
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  if(!q){ filteredIdx = flat.map((_,i)=>i); page=1; updateCounts(); return }
+  filteredIdx = [];
+  for(let i=0;i<flat.length;i++){
+    const f = flat[i];
+    const hay = (f.id+' '+f.name+' '+f.username+' '+f.mobile+' '+f.district+' '+f.state).toLowerCase();
+    if(hay.indexOf(q) !== -1) filteredIdx.push(i);
+  }
+  page = 1; updateCounts();
+}
+
+// pagination
+document.getElementById('prevPage').addEventListener('click', ()=>{ if(page>1){ page--; renderPage(); }});
+document.getElementById('nextPage').addEventListener('click', ()=>{ const pc = Math.ceil(filteredIdx.length/pageSize); if(page<pc){ page++; renderPage(); }});
+document.getElementById('pageInput').addEventListener('change', ()=>{ page = parseInt(document.getElementById('pageInput').value||1,10); renderPage(); });
+
+// export CSV of visible page
+document.getElementById('exportCsv').addEventListener('click', ()=>{
+  const start = (page-1)*pageSize; const end = Math.min(filteredIdx.length, start+pageSize);
+  const rows = [];
+  for(let i=start;i<end;i++) rows.push(flat[filteredIdx[i]]);
+  const cols = ['id','name','username','mobile','district','state'];
+  const csv = cols.join(',') + '
+' + rows.map(r => cols.map(c=>`"${String(r[c]||'').replace(/"/g,'""')}"`).join(',')).join('
+');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'export_page_'+page+'.csv'; a.click();
+});
+
+// allow pressing Enter in textarea to add
+urlBox.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && (e.ctrlKey||e.metaKey)) addUrlsFromBox(); });
+
+// helper to initialize with user's provided URL (optional)
+(function init(){
+  const initial = 'https://archive.org/download/information_20251119/information.json';
+  urlBox.value = initial;
+})();
+
 </script>
 </body>
 </html>
