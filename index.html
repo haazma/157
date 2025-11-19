@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>information.json — Table Viewer</title>
+  <style>
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:18px;background:#f5f7fb}
+    .wrap{max-width:1200px;margin:0 auto;background:#fff;padding:18px;border-radius:8px;box-shadow:0 6px 18px rgba(20,30,50,.06)}
+    header{display:flex;gap:12px;align-items:center}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+    input[type=search],select{padding:8px;border:1px solid #ddd;border-radius:6px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px}
+    th{background:#fafbfd;position:sticky;top:0}
+    .pager{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+    button{padding:8px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}
+    .small{font-size:13px}
+    .muted{color:#666}
+    .loader{display:inline-block;width:18px;height:18px;border:3px solid #eee;border-top-color:#3b82f6;border-radius:50%;animation:spin .9s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .table-container{max-height:620px;overflow:auto;border:1px solid #f0f0f5;border-radius:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>information.json — Table viewer</h1>
+      <div class="muted small">(Drop information.json in the same repo root on GitHub Pages)</div>
+    </header>
+
+    <div class="controls">
+      <label class="small">Search: <input id="q" type="search" placeholder="search across all fields" /></label>
+      <label class="small">Rows per page: <select id="pageSize"><option>25</option><option>50</option><option selected>100</option><option>250</option><option>500</option></select></label>
+      <label class="small">Sort by: <select id="sortBy"><option value="">--none--</option></select></label>
+      <label class="small">Order: <select id="sortDir"><option value="asc">asc</option><option value="desc">desc</option></select></label>
+      <button id="apply">Apply</button>
+      <button id="exportCsv">Export current view (CSV)</button>
+      <button id="reload">Reload file</button>
+      <div id="status" class="small muted" style="margin-left:auto"></div>
+    </div>
+
+    <div class="table-container">
+      <table id="tbl"><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+    </div>
+
+    <div class="pager">
+      <button id="first">⏮ First</button>
+      <button id="prev">◀ Prev</button>
+      <div class="small muted">Page <input id="pageInput" value="1" style="width:64px;padding:6px;border-radius:6px;border:1px solid #ddd"/> of <span id="pageCount">0</span></div>
+      <button id="next">Next ▶</button>
+      <button id="last">Last ⏭</button>
+      <div class="small muted">Showing <span id="showing">0</span> of <span id="total">0</span> records</div>
+    </div>
+  </div>
+
+<script>
+// Viewer for large JSON datasets — works with either an Array root or {data: [...]} root.
+// Assumes information.json is in same directory (repo root). For GitHub Pages place both files in repo and enable Pages.
+
+const RAW_PATH = 'information.json'; // change if your file name/path differs
+let records = [];
+let flatRecords = []; // flattened objects with consistent keys
+let keys = [];
+let filteredIdx = []; // indexes after filtering
+let page = 1;
+let pageSize = 100;
+let sortBy = '';
+let sortDir = 'asc';
+
+const qEl = document.getElementById('q');
+const pageInput = document.getElementById('pageInput');
+const pageCountEl = document.getElementById('pageCount');
+const totalEl = document.getElementById('total');
+const showingEl = document.getElementById('showing');
+const thead = document.getElementById('thead');
+const tbody = document.getElementById('tbody');
+const status = document.getElementById('status');
+
+function setStatus(txt, busy=false){status.innerHTML = txt + (busy? ' <span class="loader"></span>':'');}
+
+function flatten(obj, prefix = ''){
+  const out = {};
+  for(const k of Object.keys(obj||{})){
+    const val = obj[k];
+    const key = prefix ? prefix + '.' + k : k;
+    if(val && typeof val === 'object' && !Array.isArray(val) && !(val instanceof Date)){
+      Object.assign(out, flatten(val, key));
+    } else {
+      out[key] = (val === null || val === undefined) ? '' : String(val);
+    }
+  }
+  return out;
+}
+
+async function load(){
+  setStatus('Loading ' + RAW_PATH + '...', true);
+  try{
+    const res = await fetch(RAW_PATH + '?t=' + Date.now());
+    if(!res.ok) throw new Error('Failed to fetch: ' + res.status);
+    const j = await res.json();
+    // detect records array
+    if(Array.isArray(j)){
+      records = j;
+    } else if(Array.isArray(j.data)){
+      records = j.data;
+    } else if(j && Array.isArray(j.items)){
+      records = j.items;
+    } else {
+      // If JSON is single object per file (like sample), treat as single record
+      records = [j];
+    }
+
+    // flatten for display
+    flatRecords = records.map(r => flatten(r));
+
+    // compute union of keys (columns)
+    const keySet = new Set();
+    flatRecords.forEach(fr => Object.keys(fr).forEach(k => keySet.add(k)));
+    keys = Array.from(keySet).sort();
+
+    // populate sortBy select
+    const sortSelect = document.getElementById('sortBy');
+    sortSelect.innerHTML = '<option value="">--none--</option>' + keys.map(k=>`<option value="${k}">${k}</option>`).join('');
+
+    // initial filter
+    applyFilterAndRender();
+    setStatus('Loaded ' + records.length + ' records.');
+  }catch(err){
+    setStatus('Error: ' + err.message);
+    console.error(err);
+  }
+}
+
+function applyFilterAndRender(){
+  pageSize = parseInt(document.getElementById('pageSize').value,10) || 100;
+  sortBy = document.getElementById('sortBy').value;
+  sortDir = document.getElementById('sortDir').value || 'asc';
+  const q = qEl.value.trim().toLowerCase();
+
+  // Filtering: build array of indexes that match
+  filteredIdx = [];
+  if(!q){
+    filteredIdx = flatRecords.map((_,i)=>i);
+  } else {
+    for(let i=0;i<flatRecords.length;i++){
+      // search across all values (fast enough for 25k)
+      const fr = flatRecords[i];
+      let hay = '';
+      // join only first few fields to speed? We'll join all
+      hay = Object.values(fr).join(' ').toLowerCase();
+      if(hay.indexOf(q) !== -1) filteredIdx.push(i);
+    }
+  }
+
+  // Sorting
+  if(sortBy){
+    filteredIdx.sort((a,b)=>{
+      const A = flatRecords[a][sortBy] || '';
+      const B = flatRecords[b][sortBy] || '';
+      if(A === B) return 0;
+      if(sortDir === 'asc') return A < B ? -1 : 1;
+      return A > B ? -1 : 1;
+    });
+  }
+
+  // set page to valid
+  const pageCount = Math.max(1, Math.ceil(filteredIdx.length / pageSize));
+  page = Math.min(Math.max(1, parseInt(pageInput.value || 1,10)), pageCount);
+  pageInput.value = page;
+  pageCountEl.textContent = pageCount;
+  totalEl.textContent = filteredIdx.length;
+
+  // render header & body
+  renderHeader();
+  renderBody();
+}
+
+function renderHeader(){
+  thead.innerHTML = '';
+  const tr = document.createElement('tr');
+  // Show a compact set of columns first: id, name, username, student_mobile_number, parent_name, district.name etc.
+  // But we'll create full headers from keys
+  keys.forEach(k=>{
+    const th = document.createElement('th');
+    th.textContent = k;
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+}
+
+function renderBody(){
+  tbody.innerHTML = '';
+  const start = (page-1)*pageSize;
+  const end = Math.min(filteredIdx.length, start + pageSize);
+  for(let i=start;i<end;i++){
+    const idx = filteredIdx[i];
+    const fr = flatRecords[idx];
+    const tr = document.createElement('tr');
+    keys.forEach(k=>{
+      const td = document.createElement('td');
+      td.textContent = fr[k] || '';
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  showingEl.textContent = (filteredIdx.length===0) ? 0 : (start+1) + ' - ' + end;
+}
+
+// Pagination controls
+document.getElementById('first').addEventListener('click', ()=>{page=1;pageInput.value=1;renderBody();});
+document.getElementById('prev').addEventListener('click', ()=>{if(page>1){page--;pageInput.value=page;renderBody();}});
+document.getElementById('next').addEventListener('click', ()=>{const pc = Math.ceil(filteredIdx.length/pageSize); if(page<pc){page++;pageInput.value=page;renderBody();}});
+document.getElementById('last').addEventListener('click', ()=>{const pc = Math.ceil(filteredIdx.length/pageSize); page=pc;pageInput.value=page;renderBody();});
+pageInput.addEventListener('change', ()=>{page = parseInt(pageInput.value||1,10); renderBody();});
+
+// apply button
+document.getElementById('apply').addEventListener('click', ()=>{page = 1; pageInput.value = 1; applyFilterAndRender();});
+
+// export CSV of currently visible page or whole filtered set
+function toCSV(rows, cols){
+  const esc = v => '"' + (String(v||'').replace(/"/g,'""')) + '"';
+  const header = cols.map(esc).join(',');
+  const body = rows.map(r => cols.map(c => esc(r[c]||'')).join(',')).join('\n');
+  return header + '\n' + body;
+}
+
+document.getElementById('exportCsv').addEventListener('click', ()=>{
+  const start = (page-1)*pageSize;
+  const end = Math.min(filteredIdx.length, start + pageSize);
+  const rows = [];
+  for(let i=start;i<end;i++) rows.push(flatRecords[filteredIdx[i]]);
+  const csv = toCSV(rows, keys);
+  const blob = new Blob([csv], {type:'text/csv'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'information_page_' + page + '.csv';
+  link.click();
+});
+
+// reload file
+document.getElementById('reload').addEventListener('click', ()=>load());
+
+// initial load
+load();
+</script>
+</body>
+</html>
