@@ -32,35 +32,58 @@ jobs:
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser"
           "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
-      - name: Start SSH Tunnel
+      - name: Start SSH Tunnel and Get URL
         run: |
-          # Start SSH tunnel and capture output
-          $output = ssh -p 443 -o StrictHostKeyChecking=no -R0:localhost:3389 tcp@free.pinggy.io 2>&1
+          # Run SSH briefly to get the URL then background it
+          $job = Start-Job -ScriptBlock {
+              ssh -p 443 -o StrictHostKeyChecking=no -R0:localhost:3389 tcp@free.pinggy.io
+          }
+          
+          # Wait a bit for URL to appear
+          Start-Sleep 10
+          
+          # Get the output with URL
+          $output = Receive-Job -Job $job -ErrorAction SilentlyContinue
           Write-Host "SSH Output:"
           Write-Host $output
           
-          # Extract URL from output
+          # Extract URL
           if ($output -match 'tcp://[^\s]+') {
               $url = $matches[0]
               "TUNNEL_URL=$url" >> $env:GITHUB_ENV
               Write-Host "Tunnel URL: $url"
           } else {
-              "TUNNEL_URL=Check output above for URL" >> $env:GITHUB_ENV
+              # If no URL found, use the standard pinggy format
+              "TUNNEL_URL=tcp://free.pinggy.io" >> $env:GITHUB_ENV
+              Write-Host "Using default URL: tcp://free.pinggy.io"
           }
 
       - name: Display Connection Info
         run: |
           Write-Host ""
           Write-Host "=== RDP CONNECTION ==="
-          Write-Host "URL: $env:TUNNEL_URL"
-          Write-Host "User: RDPUser"
-          Write-Host "Pass: $env:RDP_PASSWORD"
+          Write-Host "Connect to: $env:TUNNEL_URL"
+          Write-Host "Username: RDPUser"
+          Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host "======================"
           Write-Host ""
 
       - name: Keep Alive
         run: |
+          $counter = 0
           while ($true) {
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP Active - URL: $env:TUNNEL_URL"
-              Start-Sleep -Seconds 60
+              if ($counter % 10 -eq 0) {
+                  Write-Host ""
+                  Write-Host "=== RDP ACTIVE ==="
+                  Write-Host "URL: $env:TUNNEL_URL"
+                  Write-Host "User: RDPUser"
+                  Write-Host "Pass: $env:RDP_PASSWORD"
+                  Write-Host "Time: $(Get-Date -Format 'HH:mm:ss')"
+                  Write-Host "=================="
+                  Write-Host ""
+              } else {
+                  Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP tunnel active..."
+              }
+              $counter++
+              Start-Sleep -Seconds 30
           }
