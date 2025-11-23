@@ -41,18 +41,23 @@ jobs:
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           Write-Host "Screenshot tool installed"
 
-      - name: Start Interactive SSH Session
+      - name: Start SSH Tunnel in Fullscreen
         run: |
-          # Start interactive SSH session where you can see output and enter inputs
-          Write-Host "Starting interactive SSH session to pinggy.io..."
-          Write-Host "You will see the SSH output below and can interact with it"
-          Write-Host "When prompted for password, just press Enter (blank password)"
-          Write-Host "=" * 50
-          ssh -p 443 -o StrictHostKeyChecking=no -R 0:localhost:3389 tcp@free.pinggy.io
+          # Start SSH in fullscreen CMD window
+          $sshProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "mode con: cols=200 lines=60 & ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N" -PassThru
+          Write-Host "SSH tunnel started in fullscreen window"
+          "SSH_PID=$($sshProcess.Id)" >> $env:GITHUB_ENV
 
-      - name: Take Screenshot After SSH
+      - name: Send Blank Line to SSH
         run: |
-          # This will only run if SSH session ends
+          # Wait 5 seconds then send blank line to SSH window
+          Start-Sleep 5
+          Add-Type -AssemblyName System.Windows.Forms
+          [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+          Write-Host "Sent blank line to SSH window"
+
+      - name: Take Screenshot
+        run: |
           Start-Sleep 5
           & "$env:TEMP\nircmd\nircmd.exe" savescreenshot "$env:TEMP\desktop_screenshot.png"
           if (Test-Path "$env:TEMP\desktop_screenshot.png") {
@@ -69,9 +74,18 @@ jobs:
       - name: Display Connection Info
         run: |
           Write-Host ""
-          Write-Host "=== RDP CONNECTION INFO ==="
+          Write-Host "=== RDP READY ==="
           Write-Host "URL: free.pinggy.io"
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
           Write-Host "============================"
           Write-Host ""
+
+      - name: Keep Alive
+        run: |
+          $counter = 0
+          while ($true) {
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP active - free.pinggy.io"
+              $counter++
+              Start-Sleep -Seconds 30
+          }
