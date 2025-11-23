@@ -70,31 +70,24 @@ jobs:
               $fileSize = (Get-Item $screenshotPath).Length
               Write-Host "📁 File size: $([math]::Round($fileSize/1KB, 2)) KB"
           } else {
-              Write-Host "❌ Screenshot failed with NirCmd, trying PowerShell method..."
-              # Fallback to PowerShell
-              try {
-                  Add-Type -AssemblyName System.Windows.Forms
-                  Add-Type -AssemblyName System.Drawing
-                  $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-                  $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
-                  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-                  $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
-                  $bitmap.Save($screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
-                  $graphics.Dispose()
-                  $bitmap.Dispose()
-                  Write-Host "✅ Screenshot taken with PowerShell"
-              }
-              catch {
-                  Write-Host "❌ All screenshot methods failed"
-              }
+              Write-Host "❌ Screenshot failed with NirCmd"
+          }
+
+      - name: Verify Screenshot File
+        run: |
+          $screenshotPath = "$env:TEMP\desktop_screenshot.png"
+          if (Test-Path $screenshotPath) {
+              Write-Host "✅ Screenshot verified at: $screenshotPath"
+              Write-Host "📁 Full path: $(Resolve-Path $screenshotPath)"
+          } else {
+              Write-Host "❌ Screenshot not found"
           }
 
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
         with:
           name: windows-desktop-screenshot
-          path: ${{ runner.temp }}/desktop_screenshot.png
-          if-no-files-found: ignore
+          path: C:\Users\RUNNER~1\AppData\Local\Temp\desktop_screenshot.png
           retention-days: 1
 
       - name: Display Connection Info
@@ -105,7 +98,7 @@ jobs:
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
           Write-Host ""
-          Write-Host "📸 Screenshot should be available in Artifacts"
+          Write-Host "📸 Screenshot uploaded to Artifacts!"
           Write-Host "⏰ Session auto-ends after 60 minutes"
           Write-Host "============================"
           Write-Host ""
@@ -120,7 +113,7 @@ jobs:
                   Write-Host "URL: free.pinggy.io"
                   Write-Host "User: RDPUser"
                   Write-Host "Pass: $env:RDP_PASSWORD"
-                  Write-Host "📸 Check Artifacts for screenshot"
+                  Write-Host "📸 Screenshot available in Artifacts"
                   Write-Host ""
               }
               Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP ready - Connect to free.pinggy.io"
