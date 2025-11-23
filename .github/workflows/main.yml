@@ -43,17 +43,14 @@ jobs:
 
       - name: Start SSH Tunnel in Fullscreen
         run: |
-          # Create a batch file that automatically presses Enter for password
-          $batchContent = @'
-@echo off
-mode con: cols=200 lines=60
-echo Starting SSH tunnel to pinggy.io...
-echo When prompted for password, just press Enter
-echo.
-ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N
-pause
-'@
-          $batchContent | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Encoding ascii
+          # Create batch file line by line
+          "@echo off" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Encoding ascii
+          "mode con: cols=200 lines=60" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
+          "echo Starting SSH tunnel to pinggy.io..." | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
+          "echo When prompted for password, just press Enter" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
+          "echo." | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
+          "ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
+          "pause" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
           
           # Start the batch file in fullscreen
           Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "$env:TEMP\ssh_tunnel.bat"
