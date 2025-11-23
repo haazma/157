@@ -42,38 +42,37 @@ jobs:
             "tcp@free.pinggy.io",
             "-N"
           ) -WindowStyle Hidden
-          Write-Host "🔗 SSH tunnel started"
+          Write-Host "🔗 SSH tunnel started to free.pinggy.io"
           Start-Sleep 5
 
       - name: Take Screenshot
         run: |
-          # Create a simple PowerShell script file for screenshot
-          @"
-          try {
-              Add-Type -AssemblyName System.Windows.Forms
-              Add-Type -AssemblyName System.Drawing
-              `$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-              `$bitmap = New-Object System.Drawing.Bitmap `$screen.Width, `$screen.Height
-              `$graphics = [System.Drawing.Graphics]::FromImage(`$bitmap)
-              `$graphics.CopyFromScreen(`$screen.Location, [System.Drawing.Point]::Empty, `$screen.Size)
-              `$screenshotPath = "`$env:TEMP\rdp_desktop.png"
-              `$bitmap.Save(`$screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
-              `$graphics.Dispose()
-              `$bitmap.Dispose()
-              Write-Host "Screenshot saved to: `$screenshotPath"
-          }
-          catch {
-              Write-Host "Screenshot failed"
-          }
-"@ | Out-File -FilePath "$env:TEMP\screenshot.ps1"
-          
-          # Run the screenshot script
+          # Write screenshot script to file first
+          $scriptContent = @'
+try {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+    $screenshotPath = "$env:TEMP\rdp_desktop.png"
+    $bitmap.Save($screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    $graphics.Dispose()
+    $bitmap.Dispose()
+    Write-Host "✅ Windows 11 Desktop Screenshot Saved"
+}
+catch {
+    Write-Host "❌ Screenshot failed: $($_.Exception.Message)"
+}
+'@
+          $scriptContent | Out-File -FilePath "$env:TEMP\screenshot.ps1" -Encoding utf8
           powershell -ExecutionPolicy Bypass -File "$env:TEMP\screenshot.ps1"
 
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: rdp-desktop
+          name: windows-11-desktop
           path: ${{ env.TEMP }}\rdp_desktop.png
           if-no-files-found: ignore
           retention-days: 1
@@ -81,30 +80,29 @@ jobs:
       - name: Display Connection Info
         run: |
           Write-Host ""
-          Write-Host "=== RDP CONNECTION READY ==="
-          Write-Host "URL: free.pinggy.io"
-          Write-Host "User: RDPUser"
-          Write-Host "Pass: $env:RDP_PASSWORD"
-          Write-Host "Screenshot uploaded as artifact"
-          Write-Host "Session ends in 60 minutes"
-          Write-Host "============================"
+          Write-Host "🖥️  WINDOWS 11 RDP READY"
+          Write-Host "========================"
+          Write-Host "🔗 URL: free.pinggy.io"
+          Write-Host "👤 User: RDPUser"
+          Write-Host "🔐 Pass: $env:RDP_PASSWORD"
+          Write-Host "📸 Screenshot: Check Artifacts"
+          Write-Host "⏰ Time: 60 minutes"
+          Write-Host "========================"
           Write-Host ""
 
       - name: Keep Alive
         run: |
           $counter = 0
           while ($true) {
-              if (($counter % 20) -eq 0) {
+              if (($counter % 10) -eq 0) {
                   Write-Host ""
-                  Write-Host "=== RDP ACTIVE ==="
+                  Write-Host "🖥️  WINDOWS 11 RDP ACTIVE"
                   Write-Host "URL: free.pinggy.io"
                   Write-Host "User: RDPUser"
                   Write-Host "Pass: $env:RDP_PASSWORD"
-                  Write-Host "=================="
                   Write-Host ""
               }
-              
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session active..."
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Windows 11 RDP ready..."
               $counter++
               Start-Sleep -Seconds 30
           }
