@@ -51,7 +51,7 @@ jobs:
       - name: Send Blank Line to SSH
         run: |
           # Wait 5 seconds then send blank line to SSH window
-          Start-Sleep 5
+          Start-Sleep 20
           Add-Type -AssemblyName System.Windows.Forms
           [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
           Write-Host "Sent blank line to SSH window"
