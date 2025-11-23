@@ -41,20 +41,17 @@ jobs:
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           Write-Host "Screenshot tool installed"
 
-      - name: Start SSH Tunnel in Fullscreen
+      - name: Download and Start Playit.gg
         run: |
-          # Create batch file line by line
-          "@echo off" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Encoding ascii
-          "mode con: cols=200 lines=60" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
-          "echo Starting SSH tunnel to pinggy.io..." | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
-          "echo When prompted for password, just press Enter" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
-          "ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
-          "pause" | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Append -Encoding ascii
+          # Download Playit.gg
+          $playitUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.16.3/playit-windows-x86_64.exe"
+          $playitPath = "$env:TEMP\playit.exe"
+          Invoke-WebRequest -Uri $playitUrl -OutFile $playitPath
+          Write-Host "Playit.gg downloaded"
           
-          # Start the batch file in fullscreen
-          Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "$env:TEMP\ssh_tunnel.bat"
-          Write-Host "SSH tunnel started in fullscreen window - press Enter when prompted for password"
+          # Start Playit in fullscreen CMD window
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "mode con: cols=200 lines=60 & echo Starting Playit.gg... & $env:TEMP\playit.exe"
+          Write-Host "Playit.gg started in fullscreen window"
 
       - name: Take Screenshot
         run: |
@@ -75,11 +72,15 @@ jobs:
         run: |
           Write-Host ""
           Write-Host "=== RDP READY ==="
-          Write-Host "URL: free.pinggy.io"
+          Write-Host "Playit.gg is running in the CMD window"
+          Write-Host "Check the screenshot for your Playit URL"
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
           Write-Host ""
-          Write-Host "Note: In the SSH window, when asked for password, just press Enter"
+          Write-Host "INSTRUCTIONS:"
+          Write-Host "1. Check the uploaded screenshot for Playit URL"
+          Write-Host "2. Use that URL to connect via RDP"
+          Write-Host "3. Use credentials above"
           Write-Host "============================"
           Write-Host ""
 
@@ -87,7 +88,15 @@ jobs:
         run: |
           $counter = 0
           while ($true) {
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP active - free.pinggy.io"
+              if (($counter % 10) -eq 0) {
+                  Write-Host ""
+                  Write-Host "=== RDP ACTIVE ==="
+                  Write-Host "Playit.gg running - Check screenshot for URL"
+                  Write-Host "User: RDPUser"
+                  Write-Host "Pass: $env:RDP_PASSWORD"
+                  Write-Host ""
+              }
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP active - Playit.gg running"
               $counter++
               Start-Sleep -Seconds 30
           }
