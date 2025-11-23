@@ -41,21 +41,19 @@ jobs:
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           Write-Host "Screenshot tool installed"
 
-      - name: Download and Start Playit.gg
+      - name: Start Interactive SSH Session
         run: |
-          # Download Playit.gg
-          $playitUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.16.3/playit-windows-x86_64.exe"
-          $playitPath = "$env:TEMP\playit.exe"
-          Invoke-WebRequest -Uri $playitUrl -OutFile $playitPath
-          Write-Host "Playit.gg downloaded"
-          
-          # Start Playit in fullscreen CMD window
-          Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "mode con: cols=200 lines=60 & echo Starting Playit.gg... & $env:TEMP\playit.exe"
-          Write-Host "Playit.gg started in fullscreen window"
+          # Start interactive SSH session where you can see output and enter inputs
+          Write-Host "Starting interactive SSH session to pinggy.io..."
+          Write-Host "You will see the SSH output below and can interact with it"
+          Write-Host "When prompted for password, just press Enter (blank password)"
+          Write-Host "=" * 50
+          ssh -p 443 -o StrictHostKeyChecking=no -R 0:localhost:3389 tcp@free.pinggy.io
 
-      - name: Take Screenshot
+      - name: Take Screenshot After SSH
         run: |
-          Start-Sleep 15
+          # This will only run if SSH session ends
+          Start-Sleep 5
           & "$env:TEMP\nircmd\nircmd.exe" savescreenshot "$env:TEMP\desktop_screenshot.png"
           if (Test-Path "$env:TEMP\desktop_screenshot.png") {
               Write-Host "✅ Screenshot taken"
@@ -71,32 +69,9 @@ jobs:
       - name: Display Connection Info
         run: |
           Write-Host ""
-          Write-Host "=== RDP READY ==="
-          Write-Host "Playit.gg is running in the CMD window"
-          Write-Host "Check the screenshot for your Playit URL"
+          Write-Host "=== RDP CONNECTION INFO ==="
+          Write-Host "URL: free.pinggy.io"
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
-          Write-Host ""
-          Write-Host "INSTRUCTIONS:"
-          Write-Host "1. Check the uploaded screenshot for Playit URL"
-          Write-Host "2. Use that URL to connect via RDP"
-          Write-Host "3. Use credentials above"
           Write-Host "============================"
           Write-Host ""
-
-      - name: Keep Alive
-        run: |
-          $counter = 0
-          while ($true) {
-              if (($counter % 10) -eq 0) {
-                  Write-Host ""
-                  Write-Host "=== RDP ACTIVE ==="
-                  Write-Host "Playit.gg running - Check screenshot for URL"
-                  Write-Host "User: RDPUser"
-                  Write-Host "Pass: $env:RDP_PASSWORD"
-                  Write-Host ""
-              }
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP active - Playit.gg running"
-              $counter++
-              Start-Sleep -Seconds 30
-          }
