@@ -43,13 +43,25 @@ jobs:
 
       - name: Start SSH Tunnel in Fullscreen
         run: |
-          # Start ONLY SSH in fullscreen CMD window
-          Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "mode con: cols=200 lines=60 & ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N"
-          Write-Host "SSH tunnel started in fullscreen window"
+          # Create a batch file that automatically presses Enter for password
+          $batchContent = @'
+@echo off
+mode con: cols=200 lines=60
+echo Starting SSH tunnel to pinggy.io...
+echo When prompted for password, just press Enter
+echo.
+ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N
+pause
+'@
+          $batchContent | Out-File -FilePath "$env:TEMP\ssh_tunnel.bat" -Encoding ascii
+          
+          # Start the batch file in fullscreen
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "$env:TEMP\ssh_tunnel.bat"
+          Write-Host "SSH tunnel started in fullscreen window - press Enter when prompted for password"
 
       - name: Take Screenshot
         run: |
-          Start-Sleep 10
+          Start-Sleep 15
           & "$env:TEMP\nircmd\nircmd.exe" savescreenshot "$env:TEMP\desktop_screenshot.png"
           if (Test-Path "$env:TEMP\desktop_screenshot.png") {
               Write-Host "✅ Screenshot taken"
@@ -69,6 +81,8 @@ jobs:
           Write-Host "URL: free.pinggy.io"
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
+          Write-Host ""
+          Write-Host "Note: In the SSH window, when asked for password, just press Enter"
           Write-Host "============================"
           Write-Host ""
 
