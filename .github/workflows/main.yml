@@ -34,7 +34,6 @@ jobs:
 
       - name: Start SSH Tunnel
         run: |
-          # Start SSH tunnel in background
           Start-Process -FilePath "ssh" -ArgumentList @(
             "-p", "443",
             "-o", "StrictHostKeyChecking=no",
@@ -43,80 +42,103 @@ jobs:
             "tcp@free.pinggy.io",
             "-N"
           ) -WindowStyle Hidden
-          
           Write-Host "🔗 SSH tunnel started"
           Start-Sleep 5
 
-      - name: Take Screenshot
+      - name: Take Screenshot with PowerShell
         run: |
-          # Install .NET for screenshot functionality
-          dotnet tool install --global PSScreenshot --version 1.1.0
-          
-          # Take screenshot
-          $screenshotPath = "$env:TEMP\rdp_screenshot.png"
-          & PSScreenshot -Path $screenshotPath
-          
-          if (Test-Path $screenshotPath) {
-              Write-Host "✅ Screenshot saved to: $screenshotPath"
-              # Upload as artifact
-              "SCREENSHOT_PATH=$screenshotPath" >> $env:GITHUB_ENV
-          } else {
-              Write-Host "⚠️  Screenshot failed, trying alternative method..."
-              # Alternative method using Windows built-in tools
+          # Create and execute screenshot script
+          $screenshotScript = @'
+          try {
               Add-Type -AssemblyName System.Windows.Forms
               Add-Type -AssemblyName System.Drawing
               
+              # Get screen bounds
               $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+              
+              # Create bitmap
               $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+              
+              # Create graphics object
               $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+              
+              # Capture screen
               $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
-              $bitmap.Save("$env:TEMP\rdp_screenshot_alt.png", [System.Drawing.Imaging.ImageFormat]::Png)
+              
+              # Save screenshot
+              $screenshotPath = "$env:TEMP\rdp_desktop.png"
+              $bitmap.Save($screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
+              
+              # Clean up
               $graphics.Dispose()
               $bitmap.Dispose()
               
-              Write-Host "✅ Screenshot taken with alternative method"
+              Write-Host "✅ Screenshot saved to: $screenshotPath"
+              
+              if (Test-Path $screenshotPath) {
+                  $fileSize = (Get-Item $screenshotPath).Length
+                  Write-Host "📁 File size: $([math]::Round($fileSize/1KB, 2)) KB"
+              }
           }
+          catch {
+              Write-Host "❌ Screenshot failed: $($_.Exception.Message)"
+              # Fallback: create a simple text file
+              "RDP Setup Complete - $(Get-Date)" | Out-File "$env:TEMP\rdp_status.txt"
+              Write-Host "📝 Created status file instead"
+          }
+'@
+          
+          # Save and run the screenshot script
+          $scriptPath = "$env:TEMP\take_screenshot.ps1"
+          $screenshotScript | Out-File -FilePath $scriptPath -Encoding utf8
+          powershell -ExecutionPolicy Bypass -File $scriptPath
 
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: rdp-screenshot
-          path: ${{ env.TEMP }}\rdp_screenshot*.png
+          name: rdp-desktop-screenshot
+          path: ${{ env.TEMP }}\rdp_desktop.png
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Upload Status File
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: rdp-status
+          path: ${{ env.TEMP }}\rdp_status.txt
           retention-days: 1
 
       - name: Display Connection Info
         run: |
           Write-Host ""
-          Write-Host "🖥️  === RDP CONNECTION ==="
-          Write-Host "🔗 Connect to: free.pinggy.io"
-          Write-Host "👤 Username: RDPUser" 
-          Write-Host "🔐 Password: $env:RDP_PASSWORD"
-          Write-Host ""
-          Write-Host "📸 Screenshot has been taken and saved as artifact"
-          Write-Host "⏰ Session ends automatically after 60 minutes"
-          Write-Host "=========================="
+          Write-Host "╔══════════════════════════════════════════════════╗"
+          Write-Host "║                 RDP CONNECTION READY            ║"
+          Write-Host "╠══════════════════════════════════════════════════╣"
+          Write-Host "║ 🔗 URL:    free.pinggy.io                       ║"
+          Write-Host "║ 👤 User:   RDPUser                              ║"
+          Write-Host "║ 🔐 Pass:   $env:RDP_PASSWORD"
+          Write-Host "╠══════════════════════════════════════════════════╣"
+          Write-Host "║ 📸 Screenshot saved as artifact                 ║"
+          Write-Host "║ ⏰ Session ends in 60 minutes                   ║"
+          Write-Host "╚══════════════════════════════════════════════════╝"
           Write-Host ""
 
-      - name: Keep Alive with Periodic Screenshots
+      - name: Keep Alive
         run: |
           $counter = 0
           while ($true) {
-              if ($counter % 30 -eq 0) {  # Take screenshot every 15 minutes
-                  Write-Host "📸 Taking periodic screenshot..."
-                  & PSScreenshot -Path "$env:TEMP\rdp_screenshot_$counter.png" -ErrorAction SilentlyContinue
-              }
-              
-              if ($counter % 10 -eq 0) {
+              if ($counter % 20 == 0) {
                   Write-Host ""
                   Write-Host "=== RDP ACTIVE ==="
                   Write-Host "URL: free.pinggy.io"
                   Write-Host "User: RDPUser"
-                  Write-Host "Pass: $env:RDP_PASSWORD" 
+                  Write-Host "Pass: $env:RDP_PASSWORD"
                   Write-Host "=================="
                   Write-Host ""
               }
               
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP ready... (screenshot: $counter)"
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session active..."
               $counter++
               Start-Sleep -Seconds 30
           }
