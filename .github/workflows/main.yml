@@ -32,58 +32,69 @@ jobs:
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser"
           "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
-      - name: Start SSH Tunnel and Get URL
+      - name: Get Pinggy URL
         run: |
-          # Run SSH briefly to get the URL then background it
-          $job = Start-Job -ScriptBlock {
-              ssh -p 443 -o StrictHostKeyChecking=no -R0:localhost:3389 tcp@free.pinggy.io
-          }
-          
-          # Wait a bit for URL to appear
-          Start-Sleep 10
-          
-          # Get the output with URL
-          $output = Receive-Job -Job $job -ErrorAction SilentlyContinue
+          # Use timeout to get the URL then continue
+          $output = cmd /c "timeout 5 && ssh -p 443 -o StrictHostKeyChecking=no -R0:localhost:3389 tcp@free.pinggy.io 2>&1" 
           Write-Host "SSH Output:"
           Write-Host $output
           
-          # Extract URL
-          if ($output -match 'tcp://[^\s]+') {
+          # Look for the actual pinggy URL in the output
+          if ($output -match 'tcp://[a-zA-Z0-9.-]+\.pinggy\.(io|link)[^\s]*') {
               $url = $matches[0]
+              Write-Host "✅ Found tunnel URL: $url"
               "TUNNEL_URL=$url" >> $env:GITHUB_ENV
-              Write-Host "Tunnel URL: $url"
           } else {
-              # If no URL found, use the standard pinggy format
-              "TUNNEL_URL=tcp://free.pinggy.io" >> $env:GITHUB_ENV
-              Write-Host "Using default URL: tcp://free.pinggy.io"
+              # If we can't extract the URL, show how to get it manually
+              Write-Host "❌ Could not extract URL automatically"
+              Write-Host "💡 Run this command locally to get your tunnel URL:"
+              Write-Host "ssh -p 443 -R0:localhost:3389 tcp@free.pinggy.io"
+              Write-Host ""
+              Write-Host "For now, use: free.pinggy.io (check port number in SSH output)"
+              "TUNNEL_URL=free.pinggy.io" >> $env:GITHUB_ENV
           }
+
+      - name: Start Background Tunnel
+        run: |
+          # Start the tunnel in background without waiting for output
+          Start-Process -FilePath "ssh" -ArgumentList @(
+            "-p", "443",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ServerAliveInterval=60",
+            "-R", "0:localhost:3389", 
+            "tcp@free.pinggy.io",
+            "-N"
+          ) -WindowStyle Hidden
+          Write-Host "🔗 SSH tunnel running in background"
+          Start-Sleep 5
 
       - name: Display Connection Info
         run: |
           Write-Host ""
-          Write-Host "=== RDP CONNECTION ==="
-          Write-Host "Connect to: $env:TUNNEL_URL"
-          Write-Host "Username: RDPUser"
-          Write-Host "Password: $env:RDP_PASSWORD"
-          Write-Host "======================"
+          Write-Host "🖥️  === RDP CONNECTION INFORMATION ==="
+          Write-Host "🔗 URL: $env:TUNNEL_URL"
+          Write-Host "👤 Username: RDPUser"
+          Write-Host "🔐 Password: $env:RDP_PASSWORD"
+          Write-Host ""
+          Write-Host "📋 Instructions:"
+          Write-Host "1. Connect to the URL above using any RDP client"
+          Write-Host "2. Use the username and password shown"
+          Write-Host "3. Session will auto-end after 60 minutes"
+          Write-Host "======================================"
           Write-Host ""
 
       - name: Keep Alive
         run: |
-          $counter = 0
+          $startTime = Get-Date
           while ($true) {
-              if ($counter % 10 -eq 0) {
-                  Write-Host ""
-                  Write-Host "=== RDP ACTIVE ==="
-                  Write-Host "URL: $env:TUNNEL_URL"
-                  Write-Host "User: RDPUser"
-                  Write-Host "Pass: $env:RDP_PASSWORD"
-                  Write-Host "Time: $(Get-Date -Format 'HH:mm:ss')"
-                  Write-Host "=================="
-                  Write-Host ""
-              } else {
-                  Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP tunnel active..."
+              $elapsed = (Get-Date) - $startTime
+              $minutesLeft = 3540 - [math]::Floor($elapsed.TotalMinutes)
+              
+              if ($minutesLeft -le 0) {
+                  Write-Host "⏰ Time's up! Session ending..."
+                  break
               }
-              $counter++
+              
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] 🟢 RDP Active - $minutesLeft minutes left - Connect to: $env:TUNNEL_URL"
               Start-Sleep -Seconds 30
           }
