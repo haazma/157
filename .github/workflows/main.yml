@@ -45,55 +45,27 @@ jobs:
           Write-Host "SSH tunnel started to free.pinggy.io"
           Start-Sleep 5
 
-      - name: Take Screenshot
+      - name: Create Status File Instead of Screenshot
         run: |
-          # Create and run screenshot script
-          $script = @'
-          try {
-              Add-Type -AssemblyName System.Windows.Forms
-              Add-Type -AssemblyName System.Drawing
-              $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-              $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
-              $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-              $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
-              $screenshotPath = "$env:TEMP\rdp_desktop.png"
-              $bitmap.Save($screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
-              $graphics.Dispose()
-              $bitmap.Dispose()
-              Write-Host "Screenshot saved to: $screenshotPath"
-              if (Test-Path $screenshotPath) {
-                  Write-Host "File exists: YES"
-              } else {
-                  Write-Host "File exists: NO"
-              }
-          }
-          catch {
-              Write-Host "Screenshot failed: $($_.Exception.Message)"
-          }
-'@
-          $script | Out-File -FilePath "$env:TEMP\screenshot.ps1" -Encoding utf8
-          powershell -ExecutionPolicy Bypass -File "$env:TEMP\screenshot.ps1"
+          # GitHub Actions Windows runners don't have GUI for screenshots
+          # Create a status file instead
+          $statusContent = @"
+RDP Connection Ready
+====================
+URL: free.pinggy.io
+Username: RDPUser
+Password: $env:RDP_PASSWORD
+Time: $(Get-Date)
+Instructions: Connect using any RDP client to free.pinggy.io
+"@
+          $statusContent | Out-File -FilePath "$env:TEMP\rdp_status.txt"
+          Write-Host "Status file created at $env:TEMP\rdp_status.txt"
 
-      - name: Check Screenshot File
-        run: |
-          # Check if screenshot file was created
-          $screenshotPath = "$env:TEMP\rdp_desktop.png"
-          if (Test-Path $screenshotPath) {
-              Write-Host "✅ Screenshot found: $screenshotPath"
-              $fileSize = (Get-Item $screenshotPath).Length
-              Write-Host "📁 File size: $([math]::Round($fileSize/1KB, 2)) KB"
-          } else {
-              Write-Host "❌ Screenshot not found at: $screenshotPath"
-              Write-Host "📂 Checking TEMP directory contents:"
-              Get-ChildItem $env:TEMP | Select-Object Name, Length | Format-Table
-          }
-
-      - name: Upload Screenshot
+      - name: Upload Status File
         uses: actions/upload-artifact@v4
         with:
-          name: windows-desktop
-          path: $env:TEMP/rdp_desktop.png
-          if-no-files-found: ignore
+          name: rdp-connection-info
+          path: $env:TEMP/rdp_status.txt
           retention-days: 1
 
       - name: Display Connection Info
@@ -103,6 +75,12 @@ jobs:
           Write-Host "URL: free.pinggy.io"
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
+          Write-Host ""
+          Write-Host "Instructions:"
+          Write-Host "1. Connect to free.pinggy.io using RDP client"
+          Write-Host "2. Username: RDPUser"
+          Write-Host "3. Password shown above"
+          Write-Host "4. Session auto-ends after 60 minutes"
           Write-Host "============================"
           Write-Host ""
 
@@ -118,7 +96,7 @@ jobs:
                   Write-Host "Pass: $env:RDP_PASSWORD"
                   Write-Host ""
               }
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP ready..."
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP ready - Connect to free.pinggy.io"
               $counter++
               Start-Sleep -Seconds 30
           }
