@@ -47,27 +47,52 @@ jobs:
 
       - name: Take Screenshot
         run: |
-          # Create screenshot script as a single file
-          echo 'Add-Type -AssemblyName System.Windows.Forms' > screenshot.ps1
-          echo 'Add-Type -AssemblyName System.Drawing' >> screenshot.ps1
-          echo '$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds' >> screenshot.ps1
-          echo '$bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height' >> screenshot.ps1
-          echo '$graphics = [System.Drawing.Graphics]::FromImage($bitmap)' >> screenshot.ps1
-          echo '$graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)' >> screenshot.ps1
-          echo '$screenshotPath = "$env:TEMP\rdp_desktop.png"' >> screenshot.ps1
-          echo '$bitmap.Save($screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)' >> screenshot.ps1
-          echo '$graphics.Dispose()' >> screenshot.ps1
-          echo '$bitmap.Dispose()' >> screenshot.ps1
-          echo 'Write-Host "Screenshot saved to: $screenshotPath"' >> screenshot.ps1
-          
-          # Run the script
-          powershell -ExecutionPolicy Bypass -File screenshot.ps1
+          # Create and run screenshot script
+          $script = @'
+          try {
+              Add-Type -AssemblyName System.Windows.Forms
+              Add-Type -AssemblyName System.Drawing
+              $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+              $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+              $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+              $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+              $screenshotPath = "$env:TEMP\rdp_desktop.png"
+              $bitmap.Save($screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
+              $graphics.Dispose()
+              $bitmap.Dispose()
+              Write-Host "Screenshot saved to: $screenshotPath"
+              if (Test-Path $screenshotPath) {
+                  Write-Host "File exists: YES"
+              } else {
+                  Write-Host "File exists: NO"
+              }
+          }
+          catch {
+              Write-Host "Screenshot failed: $($_.Exception.Message)"
+          }
+'@
+          $script | Out-File -FilePath "$env:TEMP\screenshot.ps1" -Encoding utf8
+          powershell -ExecutionPolicy Bypass -File "$env:TEMP\screenshot.ps1"
+
+      - name: Check Screenshot File
+        run: |
+          # Check if screenshot file was created
+          $screenshotPath = "$env:TEMP\rdp_desktop.png"
+          if (Test-Path $screenshotPath) {
+              Write-Host "✅ Screenshot found: $screenshotPath"
+              $fileSize = (Get-Item $screenshotPath).Length
+              Write-Host "📁 File size: $([math]::Round($fileSize/1KB, 2)) KB"
+          } else {
+              Write-Host "❌ Screenshot not found at: $screenshotPath"
+              Write-Host "📂 Checking TEMP directory contents:"
+              Get-ChildItem $env:TEMP | Select-Object Name, Length | Format-Table
+          }
 
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
         with:
           name: windows-desktop
-          path: ${{ env.TEMP }}\rdp_desktop.png
+          path: $env:TEMP/rdp_desktop.png
           if-no-files-found: ignore
           retention-days: 1
 
@@ -78,8 +103,6 @@ jobs:
           Write-Host "URL: free.pinggy.io"
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
-          Write-Host "Screenshot uploaded as artifact"
-          Write-Host "Session ends in 60 minutes"
           Write-Host "============================"
           Write-Host ""
 
