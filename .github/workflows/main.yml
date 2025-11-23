@@ -43,21 +43,16 @@ jobs:
 
       - name: Start SSH Tunnel in Fullscreen
         run: |
-          # Start SSH in fullscreen CMD window
-          $sshCommand = "mode con: cols=200 lines=60 & title SSH Tunnel - free.pinggy.io & color 0A & echo ================================ & echo    SSH TUNNEL ACTIVE & echo ================================ & echo URL: free.pinggy.io & echo User: RDPUser & echo Pass: $env:RDP_PASSWORD & echo ================================ & echo. & ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N"
-          Start-Process -FilePath "cmd.exe" -ArgumentList "/k", $sshCommand
+          # Start ONLY SSH in fullscreen CMD window
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "mode con: cols=200 lines=60 & ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N"
           Write-Host "SSH tunnel started in fullscreen window"
 
-      - name: Take Screenshot in Background
+      - name: Take Screenshot
         run: |
-          # Wait for SSH to start, then take screenshot
           Start-Sleep 10
           & "$env:TEMP\nircmd\nircmd.exe" savescreenshot "$env:TEMP\desktop_screenshot.png"
-          Start-Sleep 2
           if (Test-Path "$env:TEMP\desktop_screenshot.png") {
-              Write-Host "✅ Screenshot taken successfully"
-          } else {
-              Write-Host "❌ Screenshot failed"
+              Write-Host "✅ Screenshot taken"
           }
 
       - name: Upload Screenshot
@@ -70,30 +65,18 @@ jobs:
       - name: Display Connection Info
         run: |
           Write-Host ""
-          Write-Host "=== RDP CONNECTION READY ==="
-          Write-Host "SSH Tunnel running in fullscreen window"
+          Write-Host "=== RDP READY ==="
           Write-Host "URL: free.pinggy.io"
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
-          Write-Host ""
-          Write-Host "Screenshot uploaded to Artifacts"
-          Write-Host "Session active for 60 minutes"
           Write-Host "============================"
           Write-Host ""
 
-      - name: Keep Workflow Alive
+      - name: Keep Alive
         run: |
           $counter = 0
           while ($true) {
-              if (($counter % 10) -eq 0) {
-                  Write-Host ""
-                  Write-Host "=== RDP ACTIVE ==="
-                  Write-Host "SSH: free.pinggy.io"
-                  Write-Host "User: RDPUser"
-                  Write-Host "Pass: $env:RDP_PASSWORD"
-                  Write_Host ""
-              }
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session running..."
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP active - free.pinggy.io"
               $counter++
               Start-Sleep -Seconds 30
           }
