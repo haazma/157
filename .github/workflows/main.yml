@@ -45,21 +45,16 @@ jobs:
           Write-Host "SSH tunnel started to free.pinggy.io"
           Start-Sleep 5
 
-      - name: Create Status File Instead of Screenshot
+      - name: Create Status File
         run: |
-          # GitHub Actions Windows runners don't have GUI for screenshots
-          # Create a status file instead
-          $statusContent = @"
-RDP Connection Ready
-====================
-URL: free.pinggy.io
-Username: RDPUser
-Password: $env:RDP_PASSWORD
-Time: $(Get-Date)
-Instructions: Connect using any RDP client to free.pinggy.io
-"@
-          $statusContent | Out-File -FilePath "$env:TEMP\rdp_status.txt"
-          Write-Host "Status file created at $env:TEMP\rdp_status.txt"
+          echo "RDP Connection Ready" > $env:TEMP\rdp_status.txt
+          echo "====================" >> $env:TEMP\rdp_status.txt
+          echo "URL: free.pinggy.io" >> $env:TEMP\rdp_status.txt
+          echo "Username: RDPUser" >> $env:TEMP\rdp_status.txt
+          echo "Password: $env:RDP_PASSWORD" >> $env:TEMP\rdp_status.txt
+          echo "Time: $(Get-Date)" >> $env:TEMP\rdp_status.txt
+          echo "Instructions: Connect using any RDP client to free.pinggy.io" >> $env:TEMP\rdp_status.txt
+          Write-Host "Status file created"
 
       - name: Upload Status File
         uses: actions/upload-artifact@v4
