@@ -44,7 +44,7 @@ jobs:
       - name: Start SSH Tunnel in Fullscreen
         run: |
           # Start SSH in fullscreen CMD window
-          $sshProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "mode con: cols=200 lines=60 & ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N" -PassThru
+          $sshProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "mode con: cols=200 lines=60 & ssh -o StrictHostKeyChecking=no -p 443 -R0:localhost:5901 tcp@free.pinggy.io -N" -PassThru
           Write-Host "SSH tunnel started in fullscreen window"
           "SSH_PID=$($sshProcess.Id)" >> $env:GITHUB_ENV
 
