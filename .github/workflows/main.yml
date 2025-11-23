@@ -43,26 +43,13 @@ jobs:
 
       - name: Launch Everything in Fullscreen CMD
         run: |
-          # Create a single command that does everything in the new CMD window
-          $fullCommand = @"
-cmd /c "mode con: cols=200 lines=60 & title RDP Session - free.pinggy.io & color 0A & echo. & echo ======================================== & echo    RDP SESSION STARTING & echo ======================================== & echo. & echo Starting SSH tunnel to pinggy.io... & ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N & echo SSH tunnel connected! & echo. & echo Taking screenshot... & $env:TEMP\nircmd\nircmd.exe savescreenshot $env:TEMP\desktop_screenshot.png & echo. & echo ======================================== & echo    RDP READY! & echo ======================================== & echo URL: free.pinggy.io & echo User: RDPUser & echo Pass: $env:RDP_PASSWORD & echo. & echo Keep this window open! & echo ======================================== & echo. & timeout /t 86400"
-"@
-
-          # Launch the full command in a new window
+          $fullCommand = "mode con: cols=200 lines=60 & title RDP Session - free.pinggy.io & color 0A & echo. & echo ======================================== & echo    RDP SESSION STARTING & echo ======================================== & echo. & echo Starting SSH tunnel to pinggy.io... & ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N & echo SSH tunnel connected! & echo. & echo Taking screenshot... & $env:TEMP\nircmd\nircmd.exe savescreenshot $env:TEMP\desktop_screenshot.png & echo. & echo ======================================== & echo    RDP READY! & echo ======================================== & echo URL: free.pinggy.io & echo User: RDPUser & echo Pass: $env:RDP_PASSWORD & echo. & echo Keep this window open! & echo ======================================== & echo. & timeout /t 86400"
           Start-Process -FilePath "cmd.exe" -ArgumentList "/k", $fullCommand
 
       - name: Wait and Upload Screenshot
         run: |
-          # Wait for everything to start
           Start-Sleep 15
           Write-Host "Checking for screenshot..."
-          
-          $screenshotPath = "C:\Users\RUNNER~1\AppData\Local\Temp\desktop_screenshot.png"
-          if (Test-Path $screenshotPath) {
-              Write-Host "✅ Screenshot found, uploading..."
-          } else {
-              Write-Host "❌ Screenshot not found yet"
-          }
 
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
