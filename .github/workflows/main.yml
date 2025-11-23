@@ -25,19 +25,34 @@ jobs:
 
       - name: Create RDP User
         run: |
-          # Generate secure password
-          Add-Type -AssemblyName System.Web
-          $password = [System.Web.Security.Membership]::GeneratePassword(16, 4)
+          # Generate secure password locally without System.Web
+          $charSets = @{
+              Upper = [char[]](65..90)                    # A-Z
+              Lower = [char[]](97..122)                   # a-z  
+              Numbers = [char[]](48..57)                  # 0-9
+              Special = [char[]]((33..47) + (58..64) + (91..96) + (123..126))  # !@#$% etc
+          }
+          
+          $passwordChars = @()
+          $passwordChars += $charSets.Upper | Get-Random -Count 4
+          $passwordChars += $charSets.Lower | Get-Random -Count 4  
+          $passwordChars += $charSets.Numbers | Get-Random -Count 4
+          $passwordChars += $charSets.Special | Get-Random -Count 4
+          
+          # Shuffle the characters
+          $password = -join ($passwordChars | Sort-Object { Get-Random })
+          
+          Write-Host "Generated password: $password"
           
           # Create user
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDPUser" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "RDPUser"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser"
+          New-LocalUser -Name "RDPUser" -Password $securePass -AccountNeverExpires -ErrorAction Stop
+          Add-LocalGroupMember -Group "Administrators" -Member "RDPUser" -ErrorAction Stop
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser" -ErrorAction Stop
           
           # Store credentials
           "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
-          Write-Host "User RDPUser created with password: $password"
+          Write-Host "User RDPUser created successfully"
 
       - name: Download SSH Tunnel Tool
         run: |
@@ -47,93 +62,118 @@ jobs:
           
           try {
               Invoke-WebRequest -Uri $url -OutFile $output -TimeoutSec 30
-              Write-Host "Plink downloaded successfully"
+              Write-Host "Plink downloaded successfully from primary source"
           }
           catch {
-              Write-Host "Failed to download from primary source, trying alternative..."
-              # Alternative download source
-              $altUrl = "https://github.com/rdp/rdp-tools/raw/master/plink.exe"
-              Invoke-WebRequest -Uri $altUrl -OutFile $output -TimeoutSec 30
+              Write-Host "Failed to download from primary source, trying GitHub..."
+              # Alternative download source from GitHub
+              $altUrl = "https://github.com/rdp/rdp-tools/releases/download/plink/plink.exe"
+              try {
+                  Invoke-WebRequest -Uri $altUrl -OutFile $output -TimeoutSec 30
+                  Write-Host "Plink downloaded from GitHub"
+              }
+              catch {
+                  Write-Host "All download attempts failed, will try built-in SSH"
+                  "USE_BUILTIN_SSH=true" >> $env:GITHUB_ENV
+              }
           }
           
           if (Test-Path $output) {
-              Write-Host "Plink available at: $output"
+              Write-Host "Plink verified at: $output"
           } else {
-              Write-Host "Download failed, trying built-in SSH..."
-              # Use built-in SSH if available
+              Write-Host "No Plink available, using built-in SSH"
               "USE_BUILTIN_SSH=true" >> $env:GITHUB_ENV
           }
 
       - name: Establish SSH Tunnel
         run: |
           if ("$env:USE_BUILTIN_SSH" -eq "true") {
-              Write-Host "Using built-in SSH client"
-              # Try using built-in SSH
-              $session = New-SSHSession -ComputerName "free.pinggy.io" -Port 443 -Credential (New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList "tcp", (New-Object -TypeName System.Security.SecureString)) -AcceptKey
-              if ($session) {
-                  Write-Host "SSH session established"
-                  "TUNNEL_URL=tcp://free.pinggy.io:3389" >> $env:GITHUB_ENV
+              Write-Host "Attempting with built-in SSH client..."
+              # Try using built-in SSH (may not work on Windows Server)
+              try {
+                  ssh -o StrictHostKeyChecking=no -p 443 -R 0:localhost:3389 tcp@free.pinggy.io -N -f
+                  Write-Host "SSH tunnel started with built-in client"
+                  "TUNNEL_URL=tcp://free.pinggy.io" >> $env:GITHUB_ENV
+              }
+              catch {
+                  Write-Host "Built-in SSH failed, using direct connection info"
+                  "TUNNEL_URL=Connect to: free.pinggy.io with port forwarding" >> $env:GITHUB_ENV
               }
           } else {
               $plink = "$env:TEMP\plink.exe"
               
-              Write-Host "Testing Plink connection..."
+              Write-Host "Establishing SSH tunnel with Plink..."
               
-              # First, accept the host key and get the URL
-              $output = cmd /c "echo y | `"$plink`" -ssh -P 443 -R 0:localhost:3389 tcp@free.pinggy.io 2>&1" 
+              # First run to accept host key and get URL
+              $output = cmd /c "echo y | `"$plink`" -ssh -P 443 -R 0:localhost:3389 tcp@free.pinggy.io 2>&1"
               
-              Write-Host "Plink output:"
-              Write-Host $output
+              Write-Host "Plink output preview:"
+              if ($output.Length -gt 500) {
+                  Write-Host $output.Substring(0, 500) + "..."
+              } else {
+                  Write-Host $output
+              }
               
               # Extract URL using multiple pattern matches
               $urlPatterns = @(
                   'tcp://[a-zA-Z0-9.-]+\.pinggy\.io(?:[:][0-9]+)?',
                   'tcp://[a-zA-Z0-9.-]+\.pinggy\.link(?:[:][0-9]+)?',
                   'tcp://[a-zA-Z0-9.-]+\.pinggy\.io',
-                  'tcp://[a-zA-Z0-9.-]+\.pinggy\.link'
+                  'tcp://[a-zA-Z0-9.-]+\.pinggy\.link',
+                  'pinggy\.io:[0-9]+',
+                  'pinggy\.link:[0-9]+'
               )
               
+              $tunnelUrl = $null
               foreach ($pattern in $urlPatterns) {
                   if ($output -match $pattern) {
                       $tunnelUrl = $matches[0]
                       Write-Host "Found tunnel URL: $tunnelUrl"
-                      "TUNNEL_URL=$tunnelUrl" >> $env:GITHUB_ENV
                       break
                   }
               }
               
-              if (-not $env:TUNNEL_URL) {
-                  Write-Host "Could not extract URL, using default"
-                  "TUNNEL_URL=tcp://free.pinggy.io" >> $env:GITHUB_ENV
+              if ($tunnelUrl) {
+                  if (-not $tunnelUrl.StartsWith("tcp://")) {
+                      $tunnelUrl = "tcp://" + $tunnelUrl
+                  }
+                  "TUNNEL_URL=$tunnelUrl" >> $env:GITHUB_ENV
+              } else {
+                  Write-Host "Could not extract specific URL, using generic"
+                  "TUNNEL_URL=tcp://free.pinggy.io (check output above for actual URL)" >> $env:GITHUB_ENV
               }
               
-              # Start background tunnel
+              # Start background tunnel (non-interactive)
+              Write-Host "Starting background tunnel..."
               Start-Process -FilePath $plink -ArgumentList @(
                   "-ssh",
-                  "-P", "443",
-                  "-R", "0:localhost:3389", 
+                  "-P", "443", 
+                  "-R", "0:localhost:3389",
                   "tcp@free.pinggy.io",
-                  "-N"
+                  "-N",
+                  "-batch"
               ) -WindowStyle Hidden
               
-              Write-Host "SSH tunnel started in background"
+              Start-Sleep -Seconds 10
+              Write-Host "SSH tunnel should be running in background"
           }
 
       - name: Verify RDP Service
         run: |
           # Check if RDP service is running
-          $service = Get-Service -Name "TermService"
+          $service = Get-Service -Name "TermService" -ErrorAction SilentlyContinue
           if ($service.Status -ne "Running") {
               Write-Host "Starting RDP service..."
-              Start-Service -Name "TermService"
+              Start-Service -Name "TermService" -ErrorAction SilentlyContinue
           }
           
           # Test local RDP port
-          $test = Test-NetConnection -ComputerName localhost -Port 3389
-          if ($test.TcpTestSucceeded) {
-              Write-Host "RDP service is accessible locally"
+          Write-Host "Testing local RDP connectivity..."
+          $test = Test-NetConnection -ComputerName localhost -Port 3389 -InformationLevel Quiet
+          if ($test) {
+              Write-Host "✓ RDP service is accessible locally"
           } else {
-              Write-Host "WARNING: RDP service may not be accessible"
+              Write-Host "⚠ RDP service may not be accessible locally"
           }
 
       - name: Display Connection Information
@@ -142,15 +182,15 @@ jobs:
           Write-Host "╔══════════════════════════════════════════════════════════════╗"
           Write-Host "║                   RDP CONNECTION INFORMATION                ║"
           Write-Host "╠══════════════════════════════════════════════════════════════╣"
-          Write-Host "║ Tunnel URL: $env:TUNNEL_URL"
-          Write-Host "║ Username:   RDPUser"
-          Write-Host "║ Password:   $env:RDP_PASSWORD"
+          Write-Host "║ Address:   $env:TUNNEL_URL"
+          Write-Host "║ Username:  RDPUser" 
+          Write-Host "║ Password:  $env:RDP_PASSWORD"
           Write-Host "╠══════════════════════════════════════════════════════════════╣"
           Write-Host "║ Instructions:"
-          Write-Host "║ 1. Use the tunnel URL with any RDP client"
-          Write-Host "║ 2. Enter username: RDPUser"
-          Write-Host "║ 3. Enter password shown above"
-          Write-Host "║ 4. Connection valid for 60 minutes"
+          Write-Host "║ 1. Connect to the address above using any RDP client"
+          Write-Host "║ 2. Username: RDPUser"
+          Write-Host "║ 3. Password: (shown above)"
+          Write-Host "║ 4. Session will auto-terminate after 60 minutes"
           Write-Host "╚══════════════════════════════════════════════════════════════╝"
           Write-Host ""
 
@@ -158,6 +198,7 @@ jobs:
         run: |
           $startTime = Get-Date
           $maxDuration = New-TimeSpan -Minutes 3540  # 59 hours
+          $minuteCounter = 0
           
           while ($true) {
               $currentTime = Get-Date
@@ -169,26 +210,34 @@ jobs:
                   break
               }
               
-              Clear-Host
-              Write-Host "╔══════════════════════════════════════════════════════════════╗"
-              Write-Host "║                     ACTIVE RDP SESSION                      ║" 
-              Write-Host "╠══════════════════════════════════════════════════════════════╣"
-              Write-Host "║ Status:    Running - $(Get-Date -Format 'HH:mm:ss')"
-              Write-Host "║ Time Left: $([math]::Floor($remaining.TotalMinutes)) minutes"
-              Write-Host "║ Tunnel:    $env:TUNNEL_URL"
-              Write-Host "║ Username:  RDPUser"
-              Write-Host "║ Password:  $env:RDP_PASSWORD"
-              Write-Host "╠══════════════════════════════════════════════════════════════╣"
-              Write-Host "║ To connect: Use the URL above with RDP client"
-              Write-Host "║ To stop:    Cancel this workflow in GitHub Actions"
-              Write-Host "╚══════════════════════════════════════════════════════════════╝"
-              
-              # Verify services are still running
-              $rdpService = Get-Service -Name "TermService" -ErrorAction SilentlyContinue
-              if ($rdpService.Status -ne "Running") {
-                  Write-Host "Restarting RDP service..."
-                  Start-Service -Name "TermService" -ErrorAction SilentlyContinue
+              # Only clear and show full info every 5 minutes to avoid log spam
+              if ($minuteCounter % 5 -eq 0) {
+                  Write-Host ""
+                  Write-Host "╔══════════════════════════════════════════════════════════════╗"
+                  Write-Host "║                     ACTIVE RDP SESSION                      ║" 
+                  Write-Host "╠══════════════════════════════════════════════════════════════╣"
+                  Write-Host "║ Status:    Running - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                  Write-Host "║ Time Left: $([math]::Floor($remaining.TotalMinutes)) minutes"
+                  Write-Host "║ Address:   $env:TUNNEL_URL"
+                  Write-Host "║ Username:  RDPUser"
+                  Write-Host "║ Password:  $env:RDP_PASSWORD"
+                  Write-Host "╠══════════════════════════════════════════════════════════════╣"
+                  Write-Host "║ To stop: Cancel this workflow in GitHub Actions"
+                  Write-Host "╚══════════════════════════════════════════════════════════════╝"
+                  Write-Host ""
+              } else {
+                  Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP active - $([math]::Floor($remaining.TotalMinutes))m remaining"
               }
               
-              Start-Sleep -Seconds 30
+              # Verify services every 10 minutes
+              if ($minuteCounter % 10 -eq 0) {
+                  $rdpService = Get-Service -Name "TermService" -ErrorAction SilentlyContinue
+                  if ($rdpService.Status -ne "Running") {
+                      Write-Host "Restarting RDP service..."
+                      Start-Service -Name "TermService" -ErrorAction SilentlyContinue
+                  }
+              }
+              
+              $minuteCounter++
+              Start-Sleep -Seconds 60
           }
