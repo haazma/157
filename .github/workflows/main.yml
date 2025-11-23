@@ -45,30 +45,56 @@ jobs:
           Write-Host "SSH tunnel started to free.pinggy.io"
           Start-Sleep 5
 
-      - name: Create Status File
+      - name: Install Screenshot Tool
         run: |
-          "RDP Connection Ready" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Encoding utf8
-          "====================" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
-          "URL: free.pinggy.io" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
-          "Username: RDPUser" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
-          "Password: $env:RDP_PASSWORD" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
-          "Time: $(Get-Date)" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
-          Write-Host "Status file created at $env:TEMP\rdp_status.txt"
+          # Download NirCmd tool for screenshot
+          $url = "https://www.nirsoft.net/utils/nircmd.zip"
+          $zipPath = "$env:TEMP\nircmd.zip"
+          $extractPath = "$env:TEMP\nircmd"
+          
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+          Write-Host "Screenshot tool installed"
 
-      - name: Verify File
+      - name: Take Screenshot
         run: |
-          if (Test-Path "$env:TEMP\rdp_status.txt") {
-              Write-Host "✅ File exists: $env:TEMP\rdp_status.txt"
-              Get-Content "$env:TEMP\rdp_status.txt"
+          $nircmd = "$env:TEMP\nircmd\nircmd.exe"
+          $screenshotPath = "$env:TEMP\desktop_screenshot.png"
+          
+          # Take screenshot using NirCmd
+          & $nircmd savescreenshot $screenshotPath
+          Start-Sleep 2
+          
+          if (Test-Path $screenshotPath) {
+              Write-Host "✅ Screenshot taken: $screenshotPath"
+              $fileSize = (Get-Item $screenshotPath).Length
+              Write-Host "📁 File size: $([math]::Round($fileSize/1KB, 2)) KB"
           } else {
-              Write-Host "❌ File not found"
+              Write-Host "❌ Screenshot failed with NirCmd, trying PowerShell method..."
+              # Fallback to PowerShell
+              try {
+                  Add-Type -AssemblyName System.Windows.Forms
+                  Add-Type -AssemblyName System.Drawing
+                  $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+                  $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+                  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                  $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+                  $bitmap.Save($screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
+                  $graphics.Dispose()
+                  $bitmap.Dispose()
+                  Write-Host "✅ Screenshot taken with PowerShell"
+              }
+              catch {
+                  Write-Host "❌ All screenshot methods failed"
+              }
           }
 
-      - name: Upload Status File
+      - name: Upload Screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: rdp-connection-info
-          path: C:\Users\runneradmin\AppData\Local\Temp\rdp_status.txt
+          name: windows-desktop-screenshot
+          path: ${{ runner.temp }}/desktop_screenshot.png
+          if-no-files-found: ignore
           retention-days: 1
 
       - name: Display Connection Info
@@ -79,11 +105,8 @@ jobs:
           Write-Host "User: RDPUser"
           Write-Host "Pass: $env:RDP_PASSWORD"
           Write-Host ""
-          Write-Host "Instructions:"
-          Write-Host "1. Connect to free.pinggy.io using RDP client"
-          Write-Host "2. Username: RDPUser"
-          Write-Host "3. Password shown above"
-          Write-Host "4. Session auto-ends after 60 minutes"
+          Write-Host "📸 Screenshot should be available in Artifacts"
+          Write-Host "⏰ Session auto-ends after 60 minutes"
           Write-Host "============================"
           Write-Host ""
 
@@ -97,6 +120,7 @@ jobs:
                   Write-Host "URL: free.pinggy.io"
                   Write-Host "User: RDPUser"
                   Write-Host "Pass: $env:RDP_PASSWORD"
+                  Write-Host "📸 Check Artifacts for screenshot"
                   Write-Host ""
               }
               Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP ready - Connect to free.pinggy.io"
