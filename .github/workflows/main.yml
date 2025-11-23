@@ -32,56 +32,75 @@ jobs:
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser"
           "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
-      - name: Start SSH Tunnel
-        run: |
-          Start-Process -FilePath "ssh" -ArgumentList @(
-            "-p", "443",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ServerAliveInterval=30",
-            "-R", "0:localhost:3389",
-            "tcp@free.pinggy.io",
-            "-N"
-          ) -WindowStyle Hidden
-          Write-Host "SSH tunnel started to free.pinggy.io"
-          Start-Sleep 5
-
       - name: Install Screenshot Tool
         run: |
-          # Download NirCmd tool for screenshot
           $url = "https://www.nirsoft.net/utils/nircmd.zip"
           $zipPath = "$env:TEMP\nircmd.zip"
           $extractPath = "$env:TEMP\nircmd"
-          
           Invoke-WebRequest -Uri $url -OutFile $zipPath
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           Write-Host "Screenshot tool installed"
 
-      - name: Take Screenshot
+      - name: Launch Fullscreen Command Prompt with RDP
         run: |
-          $nircmd = "$env:TEMP\nircmd\nircmd.exe"
-          $screenshotPath = "$env:TEMP\desktop_screenshot.png"
-          
-          # Take screenshot using NirCmd
-          & $nircmd savescreenshot $screenshotPath
-          Start-Sleep 2
-          
-          if (Test-Path $screenshotPath) {
-              Write-Host "✅ Screenshot taken: $screenshotPath"
-              $fileSize = (Get-Item $screenshotPath).Length
-              Write-Host "📁 File size: $([math]::Round($fileSize/1KB, 2)) KB"
-          } else {
-              Write-Host "❌ Screenshot failed with NirCmd"
-          }
+          # Create a batch file that runs everything in fullscreen
+          $batchContent = @'
+@echo off
+title RDP Session - free.pinggy.io
+mode con: cols=200 lines=60
+color 0A
 
-      - name: Verify Screenshot File
+echo.
+echo ========================================
+echo    RDP SESSION READY - FULL SCREEN
+echo ========================================
+echo.
+echo SSH Tunnel: free.pinggy.io:3389
+echo Username: RDPUser
+echo Password: %RDP_PASSWORD%
+echo.
+echo ========================================
+echo.
+
+echo Starting SSH tunnel...
+start /min ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N
+
+timeout /t 3 /nobreak
+
+echo Taking screenshot...
+"%TEMP%\nircmd\nircmd.exe" savescreenshot "%TEMP%\desktop_screenshot.png"
+
+echo.
+echo ========================================
+echo    RDP IS NOW ACTIVE!
+echo ========================================
+echo SSH Tunnel: free.pinggy.io
+echo Username: RDPUser  
+echo Password: %RDP_PASSWORD%
+echo.
+echo Keep this window open to maintain connection
+echo Press Ctrl+C to exit
+echo ========================================
+echo.
+
+:loop
+echo [%time%] RDP Session Active - free.pinggy.io
+timeout /t 30 /nobreak >nul
+goto loop
+'@
+
+          $batchContent | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Encoding ascii
+          
+          # Set the password as environment variable for the batch file
+          $env:RDP_PASSWORD = "$env:RDP_PASSWORD"
+          
+          # Launch the batch file in a new fullscreen command prompt
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "$env:TEMP\start_rdp.bat"
+
+      - name: Wait for Screenshot
         run: |
-          $screenshotPath = "$env:TEMP\desktop_screenshot.png"
-          if (Test-Path $screenshotPath) {
-              Write-Host "✅ Screenshot verified at: $screenshotPath"
-              Write-Host "📁 Full path: $(Resolve-Path $screenshotPath)"
-          } else {
-              Write-Host "❌ Screenshot not found"
-          }
+          Start-Sleep 10
+          Write-Host "Waiting for screenshot to be taken..."
 
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
@@ -90,33 +109,28 @@ jobs:
           path: C:\Users\RUNNER~1\AppData\Local\Temp\desktop_screenshot.png
           retention-days: 1
 
-      - name: Display Connection Info
+      - name: Keep Workflow Alive
         run: |
+          Write-Host "RDP session is running in a separate fullscreen command prompt window"
+          Write-Host "SSH Tunnel: free.pinggy.io"
+          Write-Host "Username: RDPUser"
+          Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host ""
-          Write-Host "=== RDP CONNECTION READY ==="
-          Write-Host "URL: free.pinggy.io"
-          Write-Host "User: RDPUser"
-          Write-Host "Pass: $env:RDP_PASSWORD"
-          Write-Host ""
-          Write-Host "📸 Screenshot uploaded to Artifacts!"
-          Write-Host "⏰ Session auto-ends after 60 minutes"
-          Write-Host "============================"
-          Write-Host ""
-
-      - name: Keep Alive
-        run: |
+          Write-Host "The workflow will stay alive for 60 minutes to maintain the session"
+          Write-Host "Screenshot has been uploaded to Artifacts"
+          
           $counter = 0
           while ($true) {
               if (($counter % 10) -eq 0) {
                   Write-Host ""
-                  Write-Host "=== RDP ACTIVE ==="
-                  Write-Host "URL: free.pinggy.io"
+                  Write-Host "=== BACKGROUND RDP SESSION ==="
+                  Write-Host "Fullscreen CMD window is running"
+                  Write-Host "Connect to: free.pinggy.io"
                   Write-Host "User: RDPUser"
                   Write-Host "Pass: $env:RDP_PASSWORD"
-                  Write-Host "📸 Screenshot available in Artifacts"
                   Write-Host ""
               }
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP ready - Connect to free.pinggy.io"
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session maintained in background..."
               $counter++
               Start-Sleep -Seconds 30
           }
