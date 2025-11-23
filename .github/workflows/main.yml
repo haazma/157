@@ -32,80 +32,91 @@ jobs:
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser"
           "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
-      - name: Get Pinggy URL
+      - name: Start SSH Tunnel
         run: |
-          # Start SSH process and capture initial output with URL
-          $process = Start-Process -FilePath "ssh" -ArgumentList @(
-            "-p", "443",
-            "-o", "StrictHostKeyChecking=no", 
-            "-R", "0:localhost:3389",
-            "tcp@free.pinggy.io"
-          ) -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\ssh_output.txt"
-          
-          # Wait a bit for URL to appear
-          Start-Sleep 8
-          
-          # Stop the process and read output
-          $process.Kill()
-          $output = Get-Content "$env:TEMP\ssh_output.txt" -Raw -ErrorAction SilentlyContinue
-          Remove-Item "$env:TEMP\ssh_output.txt" -ErrorAction SilentlyContinue
-          
-          Write-Host "SSH Output:"
-          Write-Host $output
-          
-          # Extract the pinggy URL
-          if ($output -match '(tcp://[a-zA-Z0-9.-]+\.pinggy\.(io|link)(?::\d+)?)') {
-              $url = $matches[1]
-              Write-Host "✅ Found tunnel URL: $url"
-              "TUNNEL_URL=$url" >> $env:GITHUB_ENV
-          } else {
-              Write-Host "⚠️  Using default pinggy endpoint"
-              "TUNNEL_URL=free.pinggy.io" >> $env:GITHUB_ENV
-          }
-
-      - name: Start Background Tunnel
-        run: |
-          # Start the actual tunnel in background
+          # Start SSH tunnel in background
           Start-Process -FilePath "ssh" -ArgumentList @(
             "-p", "443",
             "-o", "StrictHostKeyChecking=no",
             "-o", "ServerAliveInterval=30",
-            "-o", "ServerAliveCountMax=3", 
             "-R", "0:localhost:3389",
             "tcp@free.pinggy.io",
             "-N"
           ) -WindowStyle Hidden
           
-          Write-Host "🔗 SSH tunnel started in background"
-          Start-Sleep 3
+          Write-Host "🔗 SSH tunnel started"
+          Start-Sleep 5
+
+      - name: Take Screenshot
+        run: |
+          # Install .NET for screenshot functionality
+          dotnet tool install --global PSScreenshot --version 1.1.0
+          
+          # Take screenshot
+          $screenshotPath = "$env:TEMP\rdp_screenshot.png"
+          & PSScreenshot -Path $screenshotPath
+          
+          if (Test-Path $screenshotPath) {
+              Write-Host "✅ Screenshot saved to: $screenshotPath"
+              # Upload as artifact
+              "SCREENSHOT_PATH=$screenshotPath" >> $env:GITHUB_ENV
+          } else {
+              Write-Host "⚠️  Screenshot failed, trying alternative method..."
+              # Alternative method using Windows built-in tools
+              Add-Type -AssemblyName System.Windows.Forms
+              Add-Type -AssemblyName System.Drawing
+              
+              $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+              $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+              $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+              $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+              $bitmap.Save("$env:TEMP\rdp_screenshot_alt.png", [System.Drawing.Imaging.ImageFormat]::Png)
+              $graphics.Dispose()
+              $bitmap.Dispose()
+              
+              Write-Host "✅ Screenshot taken with alternative method"
+          }
+
+      - name: Upload Screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-screenshot
+          path: ${{ env.TEMP }}\rdp_screenshot*.png
+          retention-days: 1
 
       - name: Display Connection Info
         run: |
           Write-Host ""
           Write-Host "🖥️  === RDP CONNECTION ==="
-          Write-Host "🔗 Connect to: $env:TUNNEL_URL"
+          Write-Host "🔗 Connect to: free.pinggy.io"
           Write-Host "👤 Username: RDPUser" 
           Write-Host "🔐 Password: $env:RDP_PASSWORD"
           Write-Host ""
-          Write-Host "💡 If connection fails, try: free.pinggy.io"
+          Write-Host "📸 Screenshot has been taken and saved as artifact"
           Write-Host "⏰ Session ends automatically after 60 minutes"
           Write-Host "=========================="
           Write-Host ""
 
-      - name: Keep Alive
+      - name: Keep Alive with Periodic Screenshots
         run: |
           $counter = 0
           while ($true) {
+              if ($counter % 30 -eq 0) {  # Take screenshot every 15 minutes
+                  Write-Host "📸 Taking periodic screenshot..."
+                  & PSScreenshot -Path "$env:TEMP\rdp_screenshot_$counter.png" -ErrorAction SilentlyContinue
+              }
+              
               if ($counter % 10 -eq 0) {
                   Write-Host ""
                   Write-Host "=== RDP ACTIVE ==="
-                  Write-Host "URL: $env:TUNNEL_URL"
+                  Write-Host "URL: free.pinggy.io"
                   Write-Host "User: RDPUser"
                   Write-Host "Pass: $env:RDP_PASSWORD" 
                   Write-Host "=================="
                   Write-Host ""
               }
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP ready..."
+              
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP ready... (screenshot: $counter)"
               $counter++
               Start-Sleep -Seconds 30
           }
