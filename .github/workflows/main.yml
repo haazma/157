@@ -47,20 +47,28 @@ jobs:
 
       - name: Create Status File
         run: |
-          echo "RDP Connection Ready" > $env:TEMP\rdp_status.txt
-          echo "====================" >> $env:TEMP\rdp_status.txt
-          echo "URL: free.pinggy.io" >> $env:TEMP\rdp_status.txt
-          echo "Username: RDPUser" >> $env:TEMP\rdp_status.txt
-          echo "Password: $env:RDP_PASSWORD" >> $env:TEMP\rdp_status.txt
-          echo "Time: $(Get-Date)" >> $env:TEMP\rdp_status.txt
-          echo "Instructions: Connect using any RDP client to free.pinggy.io" >> $env:TEMP\rdp_status.txt
-          Write-Host "Status file created"
+          "RDP Connection Ready" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Encoding utf8
+          "====================" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
+          "URL: free.pinggy.io" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
+          "Username: RDPUser" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
+          "Password: $env:RDP_PASSWORD" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
+          "Time: $(Get-Date)" | Out-File -FilePath "$env:TEMP\rdp_status.txt" -Append -Encoding utf8
+          Write-Host "Status file created at $env:TEMP\rdp_status.txt"
+
+      - name: Verify File
+        run: |
+          if (Test-Path "$env:TEMP\rdp_status.txt") {
+              Write-Host "✅ File exists: $env:TEMP\rdp_status.txt"
+              Get-Content "$env:TEMP\rdp_status.txt"
+          } else {
+              Write-Host "❌ File not found"
+          }
 
       - name: Upload Status File
         uses: actions/upload-artifact@v4
         with:
           name: rdp-connection-info
-          path: $env:TEMP/rdp_status.txt
+          path: C:\Users\runneradmin\AppData\Local\Temp\rdp_status.txt
           retention-days: 1
 
       - name: Display Connection Info
