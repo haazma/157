@@ -41,57 +41,28 @@ jobs:
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           Write-Host "Screenshot tool installed"
 
-      - name: Create Batch File
+      - name: Launch Everything in Fullscreen CMD
         run: |
-          # Create batch file line by line
-          "@echo off" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Encoding ascii
-          "title RDP Session - free.pinggy.io" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "mode con: cols=200 lines=60" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "color 0A" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo ========================================" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo    RDP SESSION READY - FULL SCREEN" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo ========================================" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo SSH Tunnel: free.pinggy.io:3389" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo Username: RDPUser" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo Password: $env:RDP_PASSWORD" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo ========================================" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo Starting SSH tunnel..." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "start /min ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "timeout /t 3 /nobreak" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo Taking screenshot..." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "`"$env:TEMP\nircmd\nircmd.exe`" savescreenshot `"$env:TEMP\desktop_screenshot.png`"" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo ========================================" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo    RDP IS NOW ACTIVE!" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo ========================================" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo SSH Tunnel: free.pinggy.io" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo Username: RDPUser" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo Password: $env:RDP_PASSWORD" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo Keep this window open to maintain connection" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo Press Ctrl+C to exit" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo ========================================" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo." | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          ":loop" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "echo [%time%] RDP Session Active - free.pinggy.io" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "timeout /t 30 /nobreak >nul" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
-          "goto loop" | Out-File -FilePath "$env:TEMP\start_rdp.bat" -Append -Encoding ascii
+          # Create a single command that does everything in the new CMD window
+          $fullCommand = @"
+cmd /c "mode con: cols=200 lines=60 & title RDP Session - free.pinggy.io & color 0A & echo. & echo ======================================== & echo    RDP SESSION STARTING & echo ======================================== & echo. & echo Starting SSH tunnel to pinggy.io... & ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 tcp@free.pinggy.io -N & echo SSH tunnel connected! & echo. & echo Taking screenshot... & $env:TEMP\nircmd\nircmd.exe savescreenshot $env:TEMP\desktop_screenshot.png & echo. & echo ======================================== & echo    RDP READY! & echo ======================================== & echo URL: free.pinggy.io & echo User: RDPUser & echo Pass: $env:RDP_PASSWORD & echo. & echo Keep this window open! & echo ======================================== & echo. & timeout /t 86400"
+"@
 
-      - name: Launch Fullscreen Command Prompt
-        run: |
-          # Launch the batch file in a new fullscreen command prompt
-          Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "$env:TEMP\start_rdp.bat"
-          Write-Host "Fullscreen command prompt launched with RDP session"
+          # Launch the full command in a new window
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/k", $fullCommand
 
-      - name: Wait for Screenshot
+      - name: Wait and Upload Screenshot
         run: |
-          Start-Sleep 10
-          Write-Host "Waiting for screenshot to be taken..."
+          # Wait for everything to start
+          Start-Sleep 15
+          Write-Host "Checking for screenshot..."
+          
+          $screenshotPath = "C:\Users\RUNNER~1\AppData\Local\Temp\desktop_screenshot.png"
+          if (Test-Path $screenshotPath) {
+              Write-Host "✅ Screenshot found, uploading..."
+          } else {
+              Write-Host "❌ Screenshot not found yet"
+          }
 
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
@@ -102,26 +73,18 @@ jobs:
 
       - name: Keep Workflow Alive
         run: |
-          Write-Host "RDP session is running in a separate fullscreen command prompt window"
+          Write-Host "=== RDP SESSION ACTIVE ==="
+          Write-Host "Everything is running in the fullscreen command prompt window"
           Write-Host "SSH Tunnel: free.pinggy.io"
           Write-Host "Username: RDPUser"
           Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host ""
-          Write-Host "The workflow will stay alive for 60 minutes to maintain the session"
-          Write-Host "Screenshot has been uploaded to Artifacts"
+          Write-Host "The workflow will stay alive for 60 minutes"
+          Write-Host "Screenshot uploaded to Artifacts"
           
           $counter = 0
           while ($true) {
-              if (($counter % 10) -eq 0) {
-                  Write-Host ""
-                  Write-Host "=== BACKGROUND RDP SESSION ==="
-                  Write-Host "Fullscreen CMD window is running"
-                  Write-Host "Connect to: free.pinggy.io"
-                  Write-Host "User: RDPUser"
-                  Write-Host "Pass: $env:RDP_PASSWORD"
-                  Write_Host ""
-              }
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session maintained in background..."
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session active in background..."
               $counter++
               Start-Sleep -Seconds 30
           }
